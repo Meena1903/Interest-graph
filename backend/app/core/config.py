@@ -67,6 +67,14 @@ class Settings(BaseSettings):
     NVIDIA_REQUEST_TIMEOUT: int = 30
 
     # --------------------------------------------------------------------------
+    # Langfuse Monitoring
+    # --------------------------------------------------------------------------
+    LANGFUSE_SECRET_KEY: str = ""
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
+
+
+    # --------------------------------------------------------------------------
     # Database
     # --------------------------------------------------------------------------
     DATABASE_URL: str = "sqlite:///./sodio.db"

@@ -22,11 +22,27 @@ import time
 from typing import Dict, List, Optional
 
 import httpx
+from langfuse import Langfuse
 
 from app.core.config import settings
 from app.models.entities import Interest
 
 logger = logging.getLogger(__name__)
+
+# Initialize Langfuse client for LLM monitoring
+langfuse_client = None
+if settings.LANGFUSE_PUBLIC_KEY and settings.LANGFUSE_SECRET_KEY:
+    try:
+        langfuse_client = Langfuse(
+            public_key=settings.LANGFUSE_PUBLIC_KEY,
+            secret_key=settings.LANGFUSE_SECRET_KEY,
+            host=settings.LANGFUSE_BASE_URL
+        )
+        logger.info("[NvidiaNim] Langfuse client initialized successfully.")
+    except Exception as e:
+        logger.error("[NvidiaNim] Failed to initialize Langfuse: %s", e)
+else:
+    logger.warning("[NvidiaNim] Langfuse credentials missing. LLM tracing disabled.")
 
 logger.info(
     "[NvidiaNim] Module loaded | base_url=%s | llm_model=%s | embed_model=%s",
@@ -123,6 +139,25 @@ async def extract_interest_tags(
         "Return JSON only, no explanation."
     )
 
+    # Start Langfuse generation trace
+    generation_trace = None
+    if langfuse_client:
+        try:
+            generation_trace = langfuse_client.generation(
+                name="extract_interest_tags",
+                model=settings.NVIDIA_LLM_MODEL,
+                input=user_prompt,
+                prompt=system_prompt,
+                model_parameters={
+                    "temperature": settings.NVIDIA_TEMPERATURE,
+                    "max_tokens": settings.NVIDIA_MAX_TOKENS,
+                    "post_id": post_id
+                }
+            )
+            logger.debug("[NvidiaNim.extract_interest_tags] Langfuse trace created.")
+        except Exception as lf_err:
+            logger.warning("[NvidiaNim.extract_interest_tags] Langfuse trace start failed: %s", lf_err)
+
     logger.info(
         "[NvidiaNim.extract_interest_tags] LLM INPUT | model=%s | "
         "system_prompt_len=%d | user_prompt_len=%d",
@@ -189,6 +224,15 @@ async def extract_interest_tags(
             e.response.text[:500],
             post_id,
         )
+        if generation_trace:
+            try:
+                generation_trace.end(
+                    output=e.response.text[:500],
+                    level="ERROR",
+                    status_message=str(e)
+                )
+            except Exception as lf_err:
+                logger.warning("[NvidiaNim] Langfuse error logging failed: %s", lf_err)
         return _fallback_tag_response(post_id, content, str(e))
 
     except httpx.TimeoutException as e:
@@ -197,6 +241,15 @@ async def extract_interest_tags(
             settings.NVIDIA_REQUEST_TIMEOUT,
             post_id,
         )
+        if generation_trace:
+            try:
+                generation_trace.end(
+                    output=f"Timeout after {settings.NVIDIA_REQUEST_TIMEOUT}s",
+                    level="ERROR",
+                    status_message=str(e)
+                )
+            except Exception as lf_err:
+                logger.warning("[NvidiaNim] Langfuse error logging failed: %s", lf_err)
         return _fallback_tag_response(post_id, content, f"Timeout after {settings.NVIDIA_REQUEST_TIMEOUT}s")
 
     except Exception as e:
@@ -206,6 +259,15 @@ async def extract_interest_tags(
             e,
             post_id,
         )
+        if generation_trace:
+            try:
+                generation_trace.end(
+                    output=str(e),
+                    level="ERROR",
+                    status_message=str(e)
+                )
+            except Exception as lf_err:
+                logger.warning("[NvidiaNim] Langfuse error logging failed: %s", lf_err)
         return _fallback_tag_response(post_id, content, str(e))
 
     # Parse response
@@ -230,6 +292,20 @@ async def extract_interest_tags(
         len(extracted_names),
         extracted_names,
     )
+
+    # End Langfuse trace on success
+    if generation_trace:
+        try:
+            generation_trace.end(
+                output=raw_content,
+                usage={
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens
+                }
+            )
+            logger.debug("[NvidiaNim.extract_interest_tags] Langfuse trace ended successfully.")
+        except Exception as lf_err:
+            logger.warning("[NvidiaNim.extract_interest_tags] Langfuse trace end failed: %s", lf_err)
 
     # Map interest names → IDs
     interest_name_to_id = {i.name.lower(): i.id for i in available_interests}
@@ -390,6 +466,19 @@ async def generate_text_embedding(text: str) -> Optional[List[float]]:
     )
     start_ts = time.perf_counter()
 
+    # Start Langfuse generation trace for embedding
+    generation_trace = None
+    if langfuse_client:
+        try:
+            generation_trace = langfuse_client.generation(
+                name="generate_text_embedding",
+                model=settings.NVIDIA_EMBED_MODEL,
+                input={"text": text},
+            )
+            logger.debug("[NvidiaNim.generate_text_embedding] Langfuse embedding trace created.")
+        except Exception as lf_err:
+            logger.warning("[NvidiaNim.generate_text_embedding] Langfuse trace start failed: %s", lf_err)
+
     payload = {
         "model": settings.NVIDIA_EMBED_MODEL,
         "input": [text],
@@ -422,11 +511,34 @@ async def generate_text_embedding(text: str) -> Optional[List[float]]:
             type(e).__name__,
             e,
         )
+        if generation_trace:
+            try:
+                generation_trace.end(
+                    output=str(e),
+                    level="ERROR",
+                    status_message=str(e)
+                )
+            except Exception as lf_err:
+                logger.warning("[NvidiaNim] Langfuse error logging failed: %s", lf_err)
         return None
 
     latency_ms = (time.perf_counter() - start_ts) * 1000
 
     embedding = response_data["data"][0]["embedding"]
+
+    # End Langfuse trace on success
+    if generation_trace:
+        try:
+            generation_trace.end(
+                output={"embedding_dimension": len(embedding)},
+                usage={
+                    "prompt_tokens": len(text.split()), # approximate token usage estimation
+                }
+            )
+            logger.debug("[NvidiaNim.generate_text_embedding] Langfuse embedding trace ended successfully.")
+        except Exception as lf_err:
+            logger.warning("[NvidiaNim.generate_text_embedding] Langfuse trace end failed: %s", lf_err)
+
     logger.info(
         "[NvidiaNim.generate_text_embedding] EMBED OUTPUT | dim=%d | "
         "first_3=[%.4f, %.4f, %.4f] | latency_ms=%.2f",

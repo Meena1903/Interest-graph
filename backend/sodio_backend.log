@@ -1,3 +1,0 @@
-2026-08-28T22:12:53 | INFO     | app.core.logging_config.setup_logging:67 | [Logging] Logging configured | level=DEBUG | handlers=[stdout, sodio_backend.log]
-2026-08-28T22:12:53 | INFO     | app.main.<module>:67 | [CORS] Middleware added | allowed_origins=['http://localhost:5173', 'http://localhost:3000']
-2026-08-28T22:12:53 | INFO     | app.main.<module>:78 | [API] All routes successfully mounted.

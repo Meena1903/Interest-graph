@@ -28,6 +28,7 @@ python-dotenv>=1.0.0
 python-multipart>=0.0.9
 structlog>=24.1.0
 python-dateutil>=2.9.0
+langfuse
 
 # Testing
 pytest>=8.0.0
