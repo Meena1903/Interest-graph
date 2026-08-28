@@ -1,4 +1,4 @@
-# Sodio Interest Graph POC 🕸️
+# Interest Graph POC 🕸️
 
 A full-stack Proof-of-Concept demonstrating the **Interest Graph Engine** for an interest-driven community platform. The system decides user feed rankings, club recommendations, local vendor matches, and event suggestions.
 
